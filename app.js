@@ -78,6 +78,15 @@
   const CACHE_KEY = 'take5.cache.v2';
   const STALE_AFTER_MS = 30 * 60 * 1000;
 
+  // T5 analysis backend (Cloudflare Worker). When set, clicking a headline
+  // opens the T5 card; the source name under each headline links straight to
+  // the article. When empty, headlines link directly as before.
+  // Overridable for testing via ?t5api=<url>.
+  const T5_API_DEFAULT = '';
+  const T5_API = new URLSearchParams(location.search).get('t5api') || T5_API_DEFAULT;
+  const CARD_CACHE_KEY = 'take5.cards.v1';
+  const CARD_CACHE_MAX = 40;
+
   const debugSecs = Number(new URLSearchParams(location.search).get('debug'));
   const CYCLE_MS = debugSecs >= 5 ? debugSecs * 1000 : 5 * 60 * 1000;
   // The relays rate-limit bursts (~18 rapid requests trips HTTP 429), so the
@@ -152,22 +161,43 @@
     const five = pickFive(id, rotate);
     const ol = $(`card-${id}`).querySelector('ol');
     ol.textContent = '';
+    const sectionTitle = SECTIONS.find((s) => s.id === id)?.title || id;
     for (const item of five) {
       const li = document.createElement('li');
       const wrap = document.createElement('div');
       const a = document.createElement('a');
       a.textContent = item.title;
       a.href = item.link;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      wrap.appendChild(a);
-      const metaText = [item.source, relTime(item.pubDate)].filter(Boolean).join(' · ');
-      if (metaText) {
-        const meta = document.createElement('span');
-        meta.className = 'meta';
-        meta.textContent = metaText;
-        wrap.appendChild(meta);
+      if (T5_API) {
+        // Headline opens the T5 analysis card; plain modified-clicks (new tab)
+        // still follow the href to the article.
+        a.className = 't5-link';
+        a.addEventListener('click', (e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+          e.preventDefault();
+          openCard(item, sectionTitle);
+        });
+      } else {
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
       }
+      wrap.appendChild(a);
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      if (T5_API && item.source) {
+        // Source name becomes the direct link to the article.
+        const srcA = document.createElement('a');
+        srcA.textContent = item.source;
+        srcA.href = item.link;
+        srcA.target = '_blank';
+        srcA.rel = 'noopener noreferrer';
+        meta.appendChild(srcA);
+        const t = relTime(item.pubDate);
+        if (t) meta.appendChild(document.createTextNode(` · ${t}`));
+      } else {
+        meta.textContent = [item.source, relTime(item.pubDate)].filter(Boolean).join(' · ');
+      }
+      if (meta.textContent) wrap.appendChild(meta);
       li.appendChild(wrap);
       ol.appendChild(li);
     }
@@ -351,6 +381,159 @@
       return parsed.savedAt || 0;
     } catch { return null; }
   }
+
+  // ---------- T5 analysis card ----------
+
+  function loadCardCache() {
+    try { return JSON.parse(localStorage.getItem(CARD_CACHE_KEY)) || {}; }
+    catch { return {}; }
+  }
+
+  function saveCardCache(cache) {
+    try {
+      const keys = Object.keys(cache);
+      if (keys.length > CARD_CACHE_MAX) {
+        keys.sort((a, b) => cache[a].at - cache[b].at)
+          .slice(0, keys.length - CARD_CACHE_MAX)
+          .forEach((k) => delete cache[k]);
+      }
+      localStorage.setItem(CARD_CACHE_KEY, JSON.stringify(cache));
+    } catch { /* ignore */ }
+  }
+
+  let overlayEl = null;
+
+  function closeCard() {
+    if (overlayEl) { overlayEl.remove(); overlayEl = null; }
+    document.body.style.overflow = '';
+  }
+
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  function cardBlock(panel, label, textOrList) {
+    if (!textOrList || (Array.isArray(textOrList) && !textOrList.length)) return;
+    const block = el('div', 't5-block');
+    block.appendChild(el('h3', 't5-label', label));
+    if (Array.isArray(textOrList)) {
+      const ul = el('ul', 't5-list');
+      for (const item of textOrList) ul.appendChild(el('li', '', item));
+      block.appendChild(ul);
+    } else {
+      block.appendChild(el('p', '', textOrList));
+    }
+    panel.appendChild(block);
+  }
+
+  function renderLeanMeter(panel, lean) {
+    if (!lean || lean === 'n/a') return;
+    const block = el('div', 't5-block');
+    block.appendChild(el('h3', 't5-label', 'Lean'));
+    const meter = el('div', 't5-lean');
+    const stops = ['left', 'center-left', 'center', 'center-right', 'right'];
+    for (const stop of stops) {
+      const seg = el('span', 't5-lean-stop' + (stop === lean ? ' active' : ''));
+      seg.title = stop;
+      meter.appendChild(seg);
+    }
+    block.appendChild(meter);
+    block.appendChild(el('p', 't5-lean-label', lean.toUpperCase()));
+    panel.appendChild(block);
+  }
+
+  function renderCardContent(panel, item, card) {
+    panel.textContent = '';
+    const head = el('div', 't5-head');
+    head.appendChild(el('span', 't5-brand', 'T5 ANALYSIS'));
+    const closeBtn = el('button', 't5-close', '✕');
+    closeBtn.addEventListener('click', closeCard);
+    head.appendChild(closeBtn);
+    panel.appendChild(head);
+    panel.appendChild(el('h2', 't5-headline', item.title));
+
+    if (card.error) {
+      panel.appendChild(el('p', 't5-error', `Analysis unavailable: ${card.error}`));
+    } else {
+      if (card.headline_only) panel.appendChild(el('p', 't5-note', 'Article body unreachable — analysis based on the headline.'));
+      renderLeanMeter(panel, card.lean);
+      cardBlock(panel, 'Bias flags', card.bias_flags);
+      cardBlock(panel, 'Missing', card.missing_facts);
+      cardBlock(panel, 'Summary', card.summary);
+      cardBlock(panel, 'So what?', card.so_what);
+      cardBlock(panel, 'Their side', card.their_side);
+      cardBlock(panel, 'Other side', card.other_side);
+      cardBlock(panel, 'Consistency check', card.consistency_check);
+      if (card.for_you_home || card.for_you_work) {
+        const bits = [];
+        if (card.for_you_home) bits.push(`At home: ${card.for_you_home}`);
+        if (card.for_you_work) bits.push(`At work: ${card.for_you_work}`);
+        cardBlock(panel, 'What this means for you', bits);
+      }
+      if (card.terror_summary) {
+        const block = el('div', 't5-block t5-terror');
+        block.appendChild(el('h3', 't5-label', '⚡ Terror Summary'));
+        block.appendChild(el('p', '', card.terror_summary));
+        panel.appendChild(block);
+      }
+    }
+
+    const srcA = el('a', 't5-source', 'READ THE SOURCE →');
+    srcA.href = card.source_url && /^https?:/.test(card.source_url) ? card.source_url : item.link;
+    srcA.target = '_blank';
+    srcA.rel = 'noopener noreferrer';
+    panel.appendChild(srcA);
+  }
+
+  async function openCard(item, sectionTitle) {
+    closeCard();
+    overlayEl = el('div', 't5-overlay');
+    overlayEl.addEventListener('click', (e) => { if (e.target === overlayEl) closeCard(); });
+    const panel = el('div', 't5-panel');
+    overlayEl.appendChild(panel);
+    document.body.appendChild(overlayEl);
+    document.body.style.overflow = 'hidden';
+
+    // Loading state
+    panel.appendChild(el('div', 't5-head')).appendChild(el('span', 't5-brand', 'T5 ANALYSIS'));
+    panel.appendChild(el('h2', 't5-headline', item.title));
+    panel.appendChild(el('p', 't5-analyzing', 'ANALYZING…'));
+    for (let i = 0; i < 5; i++) {
+      const bar = el('div', 'skel');
+      bar.style.width = `${85 - i * 9}%`;
+      panel.appendChild(bar);
+    }
+
+    const cache = loadCardCache();
+    if (cache[item.link]) {
+      renderCardContent(panel, item, cache[item.link].card);
+      return;
+    }
+
+    try {
+      const qs = new URLSearchParams({
+        url: item.link, title: item.title,
+        source: item.source || '', section: sectionTitle,
+      });
+      const res = await fetch(`${T5_API}?${qs}`, { signal: AbortSignal.timeout(60000) });
+      const card = await res.json();
+      if (!res.ok) throw new Error(card.error || `HTTP ${res.status}`);
+      if (overlayEl) renderCardContent(panel, item, card);
+      if (!card.error) {
+        cache[item.link] = { card, at: Date.now() };
+        saveCardCache(cache);
+      }
+    } catch (e) {
+      if (overlayEl) renderCardContent(panel, item, { error: String(e.message || e) });
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeCard();
+  });
 
   // ---------- Timer engine ----------
 

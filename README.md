@@ -41,6 +41,17 @@ up-to-the-minute stories and the countdown restarts. Forever.
 Top Stories · World · U.S. · Business · Technology · AI · Hacker News ·
 Science · Health · Sports · Entertainment
 
+## T5 analysis cards
+
+With the optional backend deployed (see [T5-SETUP.md](T5-SETUP.md)), clicking
+a headline opens a **T5 card**: an AI analysis of the article — 4–5 sentence
+summary, political lean meter, bias flags, missing facts, "So what?", the
+two-sided logic block on political stories, a hypocrisy check on
+celebrity/politician stories, practical what-you-can-do-with-it examples on AI
+stories, and the **Terror Summary** (one deadpan sentence in the site owner's
+voice). The source name under each headline links straight to the article.
+Until the backend is configured, headlines link directly as before.
+
 ## Local development
 
 ```sh
