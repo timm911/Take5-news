@@ -6,32 +6,83 @@
 
   const GN = 'https://news.google.com/rss';
   const LOCALE = 'hl=en-US&gl=US&ceid=US:en';
-  const topic = (t) => `${GN}/headlines/section/topic/${t}?${LOCALE}`;
+  // gn: true → Google News feed; the publisher name is embedded in each
+  // item's title and gets extracted. Other feeds carry their outlet name.
+  const gn = (t) => ({ url: `${GN}/headlines/section/topic/${t}?${LOCALE}`, gn: true });
+  const src = (url, name) => ({ url, name });
 
   const SECTIONS = [
-    { id: 'top', title: 'Top Stories', feed: `${GN}?${LOCALE}` },
-    { id: 'world', title: 'World', feed: topic('WORLD') },
-    { id: 'us', title: 'U.S.', feed: topic('NATION') },
-    { id: 'business', title: 'Business', feed: topic('BUSINESS') },
-    { id: 'tech', title: 'Technology', feed: topic('TECHNOLOGY') },
-    { id: 'ai', title: 'AI', feed: `${GN}/search?q=${encodeURIComponent('"artificial intelligence" OR OpenAI OR Anthropic OR "machine learning"')}&${LOCALE}` },
-    { id: 'science', title: 'Science', feed: topic('SCIENCE') },
-    { id: 'health', title: 'Health', feed: topic('HEALTH') },
-    { id: 'sports', title: 'Sports', feed: topic('SPORTS') },
-    { id: 'entertainment', title: 'Entertainment', feed: topic('ENTERTAINMENT') },
+    { id: 'top', title: 'Top Stories', feeds: [
+      { url: `${GN}?${LOCALE}`, gn: true },
+      src('https://feeds.bbci.co.uk/news/rss.xml', 'BBC'),
+      src('https://feeds.npr.org/1001/rss.xml', 'NPR'),
+    ] },
+    { id: 'world', title: 'World', feeds: [
+      gn('WORLD'),
+      src('https://feeds.bbci.co.uk/news/world/rss.xml', 'BBC'),
+      src('https://www.theguardian.com/world/rss', 'The Guardian'),
+    ] },
+    { id: 'us', title: 'U.S.', feeds: [
+      gn('NATION'),
+      src('https://feeds.npr.org/1003/rss.xml', 'NPR'),
+      src('https://www.theguardian.com/us-news/rss', 'The Guardian'),
+      src('https://rss.nytimes.com/services/xml/rss/nyt/US.xml', 'NYT'),
+    ] },
+    { id: 'business', title: 'Business', feeds: [
+      gn('BUSINESS'),
+      src('https://www.cnbc.com/id/10001147/device/rss/rss.html', 'CNBC'),
+      src('https://feeds.content.dowjones.io/public/rss/mw_topstories', 'MarketWatch'),
+      src('https://rss.nytimes.com/services/xml/rss/nyt/Business.xml', 'NYT'),
+    ] },
+    { id: 'tech', title: 'Technology', feeds: [
+      gn('TECHNOLOGY'),
+      src('https://www.theverge.com/rss/index.xml', 'The Verge'),
+      src('https://feeds.arstechnica.com/arstechnica/index', 'Ars Technica'),
+      src('https://techcrunch.com/feed/', 'TechCrunch'),
+    ] },
+    { id: 'ai', title: 'AI', feeds: [
+      { url: `${GN}/search?q=${encodeURIComponent('"artificial intelligence" OR OpenAI OR Anthropic OR "machine learning"')}&${LOCALE}`, gn: true },
+      src('https://www.theverge.com/rss/ai-artificial-intelligence/index.xml', 'The Verge'),
+      src('https://www.technologyreview.com/topic/artificial-intelligence/feed', 'MIT Tech Review'),
+      src('https://venturebeat.com/category/ai/feed/', 'VentureBeat'),
+      src('https://openai.com/blog/rss.xml', 'OpenAI'),
+    ] },
+    { id: 'hn', title: 'Hacker News', hn: true, feeds: [] },
+    { id: 'science', title: 'Science', feeds: [
+      gn('SCIENCE'),
+      src('https://www.sciencedaily.com/rss/all.xml', 'ScienceDaily'),
+      src('https://www.nasa.gov/rss/dyn/breaking_news.rss', 'NASA'),
+      src('https://www.nature.com/nature.rss', 'Nature'),
+    ] },
+    { id: 'health', title: 'Health', feeds: [
+      gn('HEALTH'),
+      src('https://www.statnews.com/feed/', 'STAT'),
+      src('https://rss.nytimes.com/services/xml/rss/nyt/Health.xml', 'NYT'),
+    ] },
+    { id: 'sports', title: 'Sports', feeds: [
+      gn('SPORTS'),
+      src('https://feeds.bbci.co.uk/sport/rss.xml', 'BBC Sport'),
+      src('https://www.skysports.com/rss/12040', 'Sky Sports'),
+    ] },
+    { id: 'entertainment', title: 'Entertainment', feeds: [
+      gn('ENTERTAINMENT'),
+      src('https://variety.com/feed/', 'Variety'),
+      src('https://www.hollywoodreporter.com/feed/', 'The Hollywood Reporter'),
+    ] },
   ];
 
   const STORIES_PER_SECTION = 5;
-  const POOL_MAX = 15; // keep extra stories per section so each cycle can rotate in a fresh five
+  const POOL_MAX = 25; // stories kept per section so each cycle can rotate in a fresh five
+  const HN_STORIES = 20;
   const FETCH_TIMEOUT_MS = 8000;
-  const POOL_SIZE = 3;
-  const STAGGER_MS = 250;
-  const CACHE_KEY = 'take5.cache.v1';
+  const POOL_SIZE = 4;
+  const STAGGER_MS = 150;
+  const CACHE_KEY = 'take5.cache.v2';
   const STALE_AFTER_MS = 30 * 60 * 1000;
 
   const debugSecs = Number(new URLSearchParams(location.search).get('debug'));
   const CYCLE_MS = debugSecs >= 5 ? debugSecs * 1000 : 5 * 60 * 1000;
-  const PREFETCH_MS = Math.min(15000, Math.floor(CYCLE_MS / 2));
+  const PREFETCH_MS = Math.min(45000, Math.floor(CYCLE_MS / 2));
 
   // ---------- State ----------
 
@@ -136,18 +187,25 @@
     catch { return false; }
   }
 
-  function normalizeItems(raw) {
+  // Merge raw items from all of a section's feeds: newest first, dedupe by
+  // title, cap the pool. sortByDate is off for Hacker News (rank order).
+  function normalizeItems(raw, sortByDate) {
+    if (sortByDate) {
+      raw = [...raw].sort((a, b) => (Date.parse(b.pubDate) || 0) - (Date.parse(a.pubDate) || 0));
+    }
     const seen = new Set();
     const items = [];
     for (const r of raw) {
       let title = (r.title || '').trim();
       if (!title || !isHttpUrl(r.link)) continue;
-      // Google News appends " - Publisher" to titles.
       let source = r.source || '';
-      const dash = title.lastIndexOf(' - ');
-      if (dash > 10) {
-        source = source || title.slice(dash + 3).trim();
-        title = title.slice(0, dash).trim();
+      if (r.gn) {
+        // Google News appends " - Publisher" to titles.
+        const dash = title.lastIndexOf(' - ');
+        if (dash > 10) {
+          source = source || title.slice(dash + 3).trim();
+          title = title.slice(0, dash).trim();
+        }
       }
       const key = title.toLowerCase();
       if (seen.has(key)) continue;
@@ -186,11 +244,11 @@
     });
   }
 
-  async function fetchSection(section, cycleToken) {
-    // Cache-bust the underlying feed URL so the relays can't serve a stale
-    // cached copy — the token changes each cycle, forcing a fresh pull from
-    // Google. Google ignores the extra parameter.
-    const feed = `${section.feed}&t5=${cycleToken}`;
+  async function fetchFeed(feedCfg, cycleToken) {
+    // Cache-bust the feed URL so the relays can't serve a stale cached copy —
+    // the token changes each cycle, forcing a fresh pull from the publisher.
+    // Publishers ignore the extra query parameter.
+    const feed = `${feedCfg.url}${feedCfg.url.includes('?') ? '&' : '?'}t5=${cycleToken}`;
     let raw;
     try {
       raw = await viaRss2json(feed);
@@ -203,9 +261,27 @@
         raw = await viaAllOrigins(feed); // let this one throw
       }
     }
-    const items = normalizeItems(raw);
-    if (!items.length) throw new Error('no items');
-    return { id: section.id, entry: { fetchedAt: Date.now(), items } };
+    return raw.map((r) => ({ ...r, source: feedCfg.gn ? r.source : (r.source || feedCfg.name), gn: feedCfg.gn }));
+  }
+
+  // Hacker News has a CORS-open official API — no relay needed.
+  async function fetchHackerNews() {
+    const res = await fetchWithTimeout('https://hacker-news.firebaseio.com/v0/topstories.json');
+    const ids = (await res.json()).slice(0, HN_STORIES);
+    const items = await Promise.all(ids.map(async (id) => {
+      try {
+        const r = await fetchWithTimeout(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+        const it = await r.json();
+        if (!it || !it.title) return null;
+        return {
+          title: it.title,
+          link: it.url || `https://news.ycombinator.com/item?id=${id}`,
+          source: it.score ? `${it.score} points` : 'Hacker News',
+          pubDate: it.time ? new Date(it.time * 1000).toISOString() : '',
+        };
+      } catch { return null; }
+    }));
+    return items.filter(Boolean);
   }
 
   // Small concurrency pool with staggered launches (polite to relay rate limits).
@@ -226,10 +302,27 @@
 
   async function fetchAllSections() {
     const cycleToken = Date.now();
-    const results = await pool(SECTIONS.map((s) => () => fetchSection(s, cycleToken)), POOL_SIZE);
+    // One task per feed (not per section) so slow feeds don't hold a whole
+    // section hostage and the concurrency pool stays evenly loaded.
+    const tasks = [];
+    const owners = [];
+    for (const s of SECTIONS) {
+      if (s.hn) { tasks.push(() => fetchHackerNews()); owners.push(s.id); continue; }
+      for (const f of s.feeds) { tasks.push(() => fetchFeed(f, cycleToken)); owners.push(s.id); }
+    }
+    const results = await pool(tasks, POOL_SIZE);
+
+    const rawBySection = {};
+    results.forEach((r, i) => {
+      if (r.ok && r.value.length) (rawBySection[owners[i]] ||= []).push(...r.value);
+    });
+
     let updated = 0;
-    for (const r of results) {
-      if (r.ok) { data[r.value.id] = r.value.entry; updated++; }
+    for (const s of SECTIONS) {
+      const raw = rawBySection[s.id];
+      if (!raw) continue; // every feed for this section failed — keep previous stories
+      const items = normalizeItems(raw, !s.hn);
+      if (items.length) { data[s.id] = { fetchedAt: Date.now(), items }; updated++; }
     }
     if (updated) saveCache();
     return updated;

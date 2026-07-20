@@ -10,8 +10,14 @@ up-to-the-minute stories and the countdown restarts. Forever.
 ## How it works
 
 - **No backend, no build step** — pure static HTML/CSS/JS.
-- Each section maps to a Google News RSS feed (topic feeds, plus a search feed
-  for the AI section).
+- Each section merges several sources: a Google News feed plus direct
+  publisher RSS feeds (BBC, NPR, The Guardian, NYT, CNBC, MarketWatch,
+  The Verge, Ars Technica, TechCrunch, MIT Tech Review, VentureBeat, OpenAI,
+  ScienceDaily, NASA, Nature, STAT, BBC Sport, Sky Sports, Variety, The
+  Hollywood Reporter). Items are merged newest-first across sources, deduped
+  by title, and publisher links go straight to the article.
+- The Hacker News section uses HN's official CORS-open API directly — no
+  relay involved.
 - Browsers can't fetch RSS cross-origin, so requests go through
   [rss2json](https://rss2json.com) (primary) with
   [AllOrigins](https://allorigins.win) as an XML fallback.
@@ -28,8 +34,8 @@ up-to-the-minute stories and the countdown restarts. Forever.
 
 ## Sections
 
-Top Stories · World · U.S. · Business · Technology · AI · Science · Health ·
-Sports · Entertainment
+Top Stories · World · U.S. · Business · Technology · AI · Hacker News ·
+Science · Health · Sports · Entertainment
 
 ## Local development
 
