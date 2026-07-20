@@ -22,6 +22,7 @@
   ];
 
   const STORIES_PER_SECTION = 5;
+  const POOL_MAX = 15; // keep extra stories per section so each cycle can rotate in a fresh five
   const FETCH_TIMEOUT_MS = 8000;
   const POOL_SIZE = 3;
   const STAGGER_MS = 250;
@@ -34,7 +35,8 @@
 
   // ---------- State ----------
 
-  const data = {}; // sectionId -> { fetchedAt, items: [{title, link, source, pubDate}] }
+  const data = {}; // sectionId -> { fetchedAt, items: pool of up to POOL_MAX {title, link, source, pubDate} }
+  const shown = {}; // sectionId -> Set of links displayed last cycle, so rotation avoids repeats
   let deadline = 0;
   let prefetchPromise = null;
   let lastShownSecond = -1;
@@ -78,12 +80,26 @@
     return `${Math.round(hrs / 24)}d ago`;
   }
 
-  function renderSection(id) {
-    const entry = data[id];
-    if (!entry || !entry.items.length) return;
+  // Pick the five stories to display. With rotate, stories not shown last
+  // cycle come first (new stories from Google naturally qualify), so the
+  // links visibly change at every swap even when the feed itself hasn't.
+  function pickFive(id, rotate) {
+    const pool = data[id]?.items || [];
+    const last = shown[id] || new Set();
+    const ordered = rotate
+      ? [...pool.filter((i) => !last.has(i.link)), ...pool.filter((i) => last.has(i.link))]
+      : pool;
+    const five = ordered.slice(0, STORIES_PER_SECTION);
+    shown[id] = new Set(five.map((i) => i.link));
+    return five;
+  }
+
+  function renderSection(id, rotate) {
+    if (!data[id] || !data[id].items.length) return;
+    const five = pickFive(id, rotate);
     const ol = $(`card-${id}`).querySelector('ol');
     ol.textContent = '';
-    for (const item of entry.items) {
+    for (const item of five) {
       const li = document.createElement('li');
       const wrap = document.createElement('div');
       const a = document.createElement('a');
@@ -104,8 +120,8 @@
     }
   }
 
-  function renderAll() {
-    for (const s of SECTIONS) renderSection(s.id);
+  function renderAll(rotate) {
+    for (const s of SECTIONS) renderSection(s.id, rotate);
   }
 
   function setStatus(text, stale = false) {
@@ -137,7 +153,7 @@
       if (seen.has(key)) continue;
       seen.add(key);
       items.push({ title, link: r.link, source, pubDate: r.pubDate || '' });
-      if (items.length === STORIES_PER_SECTION) break;
+      if (items.length === POOL_MAX) break;
     }
     return items;
   }
@@ -170,12 +186,22 @@
     });
   }
 
-  async function fetchSection(section) {
+  async function fetchSection(section, cycleToken) {
+    // Cache-bust the underlying feed URL so the relays can't serve a stale
+    // cached copy — the token changes each cycle, forcing a fresh pull from
+    // Google. Google ignores the extra parameter.
+    const feed = `${section.feed}&t5=${cycleToken}`;
     let raw;
     try {
-      raw = await viaRss2json(section.feed);
+      raw = await viaRss2json(feed);
     } catch {
-      raw = await viaAllOrigins(section.feed); // let this one throw
+      try {
+        // A never-seen URL occasionally errors on the relay's first attempt
+        // while it fetches the feed; the immediate retry hits its fresh cache.
+        raw = await viaRss2json(feed);
+      } catch {
+        raw = await viaAllOrigins(feed); // let this one throw
+      }
     }
     const items = normalizeItems(raw);
     if (!items.length) throw new Error('no items');
@@ -199,7 +225,8 @@
   }
 
   async function fetchAllSections() {
-    const results = await pool(SECTIONS.map((s) => () => fetchSection(s)), POOL_SIZE);
+    const cycleToken = Date.now();
+    const results = await pool(SECTIONS.map((s) => () => fetchSection(s, cycleToken)), POOL_SIZE);
     let updated = 0;
     for (const r of results) {
       if (r.ok) { data[r.value.id] = r.value.entry; updated++; }
@@ -259,7 +286,7 @@
     prefetchPromise = null;
     markUpdating(true);
     const updated = await p;
-    renderAll();
+    renderAll(true); // rotate: always surface the five not shown last cycle
     markUpdating(false);
     setStatus(updated
       ? `last updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`

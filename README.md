@@ -16,7 +16,11 @@ up-to-the-minute stories and the countdown restarts. Forever.
   [rss2json](https://rss2json.com) (primary) with
   [AllOrigins](https://allorigins.win) as an XML fallback.
 - ~15 seconds before zero the page **prefetches** all ten feeds so the swap at
-  00:00 is instant.
+  00:00 is instant. Feed URLs carry a per-cycle cache-busting token so the
+  relays re-pull from Google every time instead of serving a cached copy.
+- Each section keeps a pool of up to 15 stories and **rotates**: at every swap
+  it shows five stories that weren't on screen last cycle (brand-new stories
+  always jump the queue), so the links visibly change at every zero.
 - Results are cached in `localStorage` — if every relay is down, the last known
   stories stay up and the clock keeps cycling. The page never blanks.
 - The timer is deadline-based (computed from an absolute timestamp), so it
