@@ -21,9 +21,13 @@ up-to-the-minute stories and the countdown restarts. Forever.
 - Browsers can't fetch RSS cross-origin, so requests go through
   [rss2json](https://rss2json.com) (primary) with
   [AllOrigins](https://allorigins.win) as an XML fallback.
-- ~15 seconds before zero the page **prefetches** all ten feeds so the swap at
-  00:00 is instant. Feed URLs carry a per-cycle cache-busting token so the
-  relays re-pull from Google every time instead of serving a cached copy.
+- Fetches are **paced, not burst**: the relays rate-limit rapid request
+  streams, so each cycle's ~35 feed pulls are spread evenly across the
+  5-minute window (a few per minute, alternating between the two relays),
+  harvested into per-section pools, and swapped in together at 00:00. The
+  launch order rotates each cycle so no section is ever systematically last.
+  Feed URLs carry a per-cycle cache-busting token so the relays re-pull from
+  the publisher every time instead of serving a cached copy.
 - Each section keeps a pool of up to 15 stories and **rotates**: at every swap
   it shows five stories that weren't on screen last cycle (brand-new stories
   always jump the queue), so the links visibly change at every zero.

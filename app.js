@@ -75,14 +75,16 @@
   const POOL_MAX = 25; // stories kept per section so each cycle can rotate in a fresh five
   const HN_STORIES = 20;
   const FETCH_TIMEOUT_MS = 8000;
-  const POOL_SIZE = 4;
-  const STAGGER_MS = 150;
   const CACHE_KEY = 'take5.cache.v2';
   const STALE_AFTER_MS = 30 * 60 * 1000;
 
   const debugSecs = Number(new URLSearchParams(location.search).get('debug'));
   const CYCLE_MS = debugSecs >= 5 ? debugSecs * 1000 : 5 * 60 * 1000;
-  const PREFETCH_MS = Math.min(45000, Math.floor(CYCLE_MS / 2));
+  // The relays rate-limit bursts (~18 rapid requests trips HTTP 429), so the
+  // ~35 feed fetches are spread across the cycle instead: the harvest starts
+  // right after each swap and must wrap up this long before the next zero.
+  const HARVEST_MARGIN_MS = Math.min(30000, Math.floor(CYCLE_MS / 3));
+  const INITIAL_WINDOW_MS = Math.min(90000, Math.floor(CYCLE_MS / 2));
 
   // ---------- State ----------
 
@@ -244,21 +246,23 @@
     });
   }
 
-  async function fetchFeed(feedCfg, cycleToken) {
+  async function fetchFeed(feedCfg, cycleToken, relayIndex) {
     // Cache-bust the feed URL so the relays can't serve a stale cached copy —
     // the token changes each cycle, forcing a fresh pull from the publisher.
     // Publishers ignore the extra query parameter.
     const feed = `${feedCfg.url}${feedCfg.url.includes('?') ? '&' : '?'}t5=${cycleToken}`;
+    // Alternate which relay is primary per task so the load splits between
+    // them; on failure try the other, then the primary once more (a relay's
+    // first sight of a never-seen URL occasionally errors while it fetches).
+    const relays = relayIndex % 2 ? [viaAllOrigins, viaRss2json] : [viaRss2json, viaAllOrigins];
     let raw;
     try {
-      raw = await viaRss2json(feed);
+      raw = await relays[0](feed);
     } catch {
       try {
-        // A never-seen URL occasionally errors on the relay's first attempt
-        // while it fetches the feed; the immediate retry hits its fresh cache.
-        raw = await viaRss2json(feed);
+        raw = await relays[1](feed);
       } catch {
-        raw = await viaAllOrigins(feed); // let this one throw
+        raw = await relays[0](feed); // let this one throw
       }
     }
     return raw.map((r) => ({ ...r, source: feedCfg.gn ? r.source : (r.source || feedCfg.name), gn: feedCfg.gn }));
@@ -284,38 +288,41 @@
     return items.filter(Boolean);
   }
 
-  // Small concurrency pool with staggered launches (polite to relay rate limits).
-  async function pool(tasks, size) {
-    const results = [];
-    let next = 0;
-    const workers = Array.from({ length: Math.min(size, tasks.length) }, async (_, w) => {
-      await new Promise((r) => setTimeout(r, w * STAGGER_MS));
-      while (next < tasks.length) {
-        const i = next++;
-        try { results[i] = { ok: true, value: await tasks[i]() }; }
-        catch (e) { results[i] = { ok: false, error: e }; }
-      }
-    });
-    await Promise.all(workers);
-    return results;
-  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let harvestCount = 0;
 
-  async function fetchAllSections() {
+  // Fetch every feed once, with launches spread evenly across windowMs so the
+  // relays never see a burst. Results accumulate per section and merge into
+  // `data` when all tasks settle (the display only changes at the next swap).
+  async function harvestAll(windowMs, progressive) {
     const cycleToken = Date.now();
-    // One task per feed (not per section) so slow feeds don't hold a whole
-    // section hostage and the concurrency pool stays evenly loaded.
+    // One task per feed (not per section) so a slow feed can't hold a whole
+    // section hostage.
     const tasks = [];
-    const owners = [];
     for (const s of SECTIONS) {
-      if (s.hn) { tasks.push(() => fetchHackerNews()); owners.push(s.id); continue; }
-      for (const f of s.feeds) { tasks.push(() => fetchFeed(f, cycleToken)); owners.push(s.id); }
+      if (s.hn) { tasks.push({ id: s.id, run: () => fetchHackerNews() }); continue; }
+      for (const f of s.feeds) tasks.push({ id: s.id, run: (i) => fetchFeed(f, cycleToken, i) });
     }
-    const results = await pool(tasks, POOL_SIZE);
+    // Rotate launch order each harvest so no section is systematically last
+    // (last in a tight window is first to hit any rate limit).
+    const rot = (harvestCount++ * 7) % tasks.length;
+    const ordered = tasks.slice(rot).concat(tasks.slice(0, rot));
+    const spacing = Math.max(0, windowMs - FETCH_TIMEOUT_MS) / Math.max(1, ordered.length - 1);
 
     const rawBySection = {};
-    results.forEach((r, i) => {
-      if (r.ok && r.value.length) (rawBySection[owners[i]] ||= []).push(...r.value);
-    });
+    await Promise.all(ordered.map((t, i) => (async () => {
+      await sleep(i * spacing);
+      try {
+        const items = await t.run(i);
+        if (items.length) (rawBySection[t.id] ||= []).push(...items);
+        // On first load, fill each empty card as soon as any of its feeds
+        // lands instead of waiting for the whole harvest.
+        if (progressive && items.length && !data[t.id]?.items?.length) {
+          data[t.id] = { fetchedAt: Date.now(), items: normalizeItems(rawBySection[t.id], t.id !== 'hn') };
+          renderSection(t.id, false);
+        }
+      } catch { /* this feed failed — the section's other feeds still count */ }
+    })()));
 
     let updated = 0;
     for (const s of SECTIONS) {
@@ -361,8 +368,8 @@
     $('s2').textContent = ss[1];
   }
 
-  function startPrefetch() {
-    if (!prefetchPromise) prefetchPromise = fetchAllSections().catch(() => 0);
+  function startHarvest(windowMs) {
+    if (!prefetchPromise) prefetchPromise = harvestAll(Math.max(0, windowMs)).catch(() => 0);
   }
 
   function markUpdating(on) {
@@ -374,11 +381,13 @@
     void timerEl.offsetWidth; // restart the animation
     timerEl.classList.add('flash');
     deadline += CYCLE_MS;
-    startPrefetch(); // in case the prefetch window was missed (e.g. throttled tab)
     const p = prefetchPromise;
     prefetchPromise = null;
+    // Kick off next cycle's slow harvest immediately so it has the whole
+    // window to trickle through the feeds.
+    startHarvest(deadline - Date.now() - HARVEST_MARGIN_MS);
     markUpdating(true);
-    const updated = await p;
+    const updated = p ? await p : 0;
     renderAll(true); // rotate: always surface the five not shown last cycle
     markUpdating(false);
     setStatus(updated
@@ -389,7 +398,9 @@
   function tick() {
     const remaining = Math.max(0, deadline - Date.now());
     renderClock(remaining);
-    if (remaining <= PREFETCH_MS && remaining > 0) startPrefetch();
+    // Rescue path: if no harvest is in flight this cycle (e.g. the tab was
+    // asleep when the cycle started), run a compressed one now.
+    if (!prefetchPromise && remaining > 0) startHarvest(Math.max(0, remaining - HARVEST_MARGIN_MS));
     if (remaining === 0) {
       // Catch up if the tab slept through one or more cycles.
       while (deadline <= Date.now() - CYCLE_MS) deadline += CYCLE_MS;
@@ -416,17 +427,23 @@
   }
 
   deadline = Date.now() + CYCLE_MS;
+
+  // The initial harvest fills the page (progressively, top sections first)
+  // and doubles as cycle one's prefetch — onZero consumes it at the first
+  // swap. Must be armed before the first tick, or the rescue path in tick()
+  // would spawn a duplicate harvest.
+  prefetchPromise = harvestAll(INITIAL_WINDOW_MS, true).catch(() => 0);
+  prefetchPromise.then((updated) => {
+    renderAll();
+    setStatus(updated
+      ? `last updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      : 'live feeds unreachable — showing cached stories', !updated);
+  });
+
   rafLoop();
   setInterval(tick, 1000); // safety net for throttled/background tabs
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) tick();
-  });
-
-  fetchAllSections().then((updated) => {
-    renderAll();
-    setStatus(updated
-      ? `last updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-      : 'live feeds unreachable — showing cached stories', !updated);
   });
 })();
