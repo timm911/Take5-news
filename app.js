@@ -69,6 +69,40 @@
       src('https://variety.com/feed/', 'Variety'),
       src('https://www.hollywoodreporter.com/feed/', 'The Hollywood Reporter'),
     ] },
+    // Static section: links curated from wildimaps.com's sitemap. No fetching;
+    // the pool still rotates five links per cycle. direct: links bypass the
+    // T5 card and go straight to the page.
+    { id: 'wildi', title: 'WilDi Maps', direct: true, feeds: [], staticItems: [
+      { title: 'WilDi Maps: Local Advertising on Real Driver Phones', link: 'https://wildimaps.com/', source: 'WilDi Maps' },
+      { title: 'Careers at WilDi Maps — open positions', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Why Billboards Are a Bad Investment in 2026', link: 'https://wildimaps.com/learn/why-billboards-bad-investment-2026', source: 'Learn' },
+      { title: 'What Percentage of Digital Ad Impressions Are Bots?', link: 'https://wildimaps.com/learn/percentage-digital-ad-impressions-bots', source: 'Learn' },
+      { title: 'What Is Impression Fraud?', link: 'https://wildimaps.com/learn/what-is-impression-fraud', source: 'Learn' },
+      { title: 'What Is Geofence Advertising?', link: 'https://wildimaps.com/learn/what-is-geofence-advertising', source: 'Learn' },
+      { title: 'GPS-Verified Ad Delivery, Explained', link: 'https://wildimaps.com/learn/gps-verified-ad-delivery', source: 'Learn' },
+      { title: 'Cost Per Verified Delivery (CPVD)', link: 'https://wildimaps.com/learn/cost-per-verified-delivery', source: 'Learn' },
+      { title: 'CPM vs CPC vs CPVD', link: 'https://wildimaps.com/learn/cpm-vs-cpc-vs-cpvd', source: 'Learn' },
+      { title: 'Geofence Billboard Retargeting: How Accurate Is It?', link: 'https://wildimaps.com/learn/geofence-billboard-retargeting-accuracy', source: 'Learn' },
+      { title: 'What Is Hyperlocal Advertising?', link: 'https://wildimaps.com/learn/what-is-hyperlocal-advertising', source: 'Learn' },
+      { title: 'Best Advertising for a Local Service Business in 2026', link: 'https://wildimaps.com/learn/best-advertising-for-local-service-business-2026', source: 'Learn' },
+      { title: 'How to Measure ROI on Local Advertising', link: 'https://wildimaps.com/learn/how-to-measure-roi-on-local-advertising', source: 'Learn' },
+      { title: 'Advertising Glossary', link: 'https://wildimaps.com/learn/glossary', source: 'Learn' },
+      { title: 'Hiring: Sales Development Representative', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Hiring: Senior Frontend Developer', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Hiring: Backend Engineer', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Hiring: Product Manager', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Hiring: Customer Success Manager', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Hiring: Data Scientist', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Hiring: Mobile App Developer', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Hiring: AI Developer', link: 'https://wildimaps.com/careers', source: 'Careers' },
+      { title: 'Apply to WilDi Maps', link: 'https://wildimaps.com/careers/apply', source: 'Careers' },
+      { title: 'About WilDi Maps', link: 'https://wildimaps.com/about', source: 'WilDi Maps' },
+      { title: 'Meet Timm Ross', link: 'https://wildimaps.com/about/timm-ross', source: 'WilDi Maps' },
+      { title: 'Watch: We Own the Infrastructure', link: 'https://wildimaps.com/watch/we-own-the-infrastructure', source: 'WilDi Maps' },
+      { title: 'The Middleman Tax', link: 'https://wildimaps.com/middleman-tax', source: 'WilDi Maps' },
+      { title: 'Advertising Cost Calculators', link: 'https://wildimaps.com/calculators', source: 'WilDi Maps' },
+      { title: 'WilDi Maps Pricing', link: 'https://wildimaps.com/pricing', source: 'WilDi Maps' },
+    ] },
   ];
 
   const STORIES_PER_SECTION = 5;
@@ -87,8 +121,18 @@
   const CARD_CACHE_KEY = 'take5.cards.v1';
   const CARD_CACHE_MAX = 40;
 
+  // User-selectable refresh timing (header dropdown). Default 5 minutes;
+  // the ?debug=N override still wins for testing.
+  const CYCLE_STORE_KEY = 'take5.cycle.v1';
+  const CYCLE_CHOICES = [2, 5, 10, 15, 30];
+  let cycleMinutes = 5;
+  try {
+    const stored = Number(localStorage.getItem(CYCLE_STORE_KEY));
+    if (CYCLE_CHOICES.includes(stored)) cycleMinutes = stored;
+  } catch { /* ignore */ }
+
   const debugSecs = Number(new URLSearchParams(location.search).get('debug'));
-  const CYCLE_MS = debugSecs >= 5 ? debugSecs * 1000 : 5 * 60 * 1000;
+  const CYCLE_MS = debugSecs >= 5 ? debugSecs * 1000 : cycleMinutes * 60 * 1000;
   // The relays rate-limit bursts (~18 rapid requests trips HTTP 429), so the
   // ~35 feed fetches are spread across the cycle instead: the harvest starts
   // right after each swap and must wrap up this long before the next zero.
@@ -161,14 +205,16 @@
     const five = pickFive(id, rotate);
     const ol = $(`card-${id}`).querySelector('ol');
     ol.textContent = '';
-    const sectionTitle = SECTIONS.find((s) => s.id === id)?.title || id;
+    const sec = SECTIONS.find((s) => s.id === id);
+    const sectionTitle = sec?.title || id;
+    const useCard = Boolean(T5_API) && !sec?.direct;
     for (const item of five) {
       const li = document.createElement('li');
       const wrap = document.createElement('div');
       const a = document.createElement('a');
       a.textContent = item.title;
       a.href = item.link;
-      if (T5_API) {
+      if (useCard) {
         // Headline opens the T5 analysis card; plain modified-clicks (new tab)
         // still follow the href to the article.
         a.className = 't5-link';
@@ -184,7 +230,7 @@
       wrap.appendChild(a);
       const meta = document.createElement('span');
       meta.className = 'meta';
-      if (T5_API && item.source) {
+      if (useCard && item.source) {
         // Source name becomes the direct link to the article.
         const srcA = document.createElement('a');
         srcA.textContent = item.source;
@@ -601,12 +647,29 @@
   buildCards();
 
   const cachedAt = loadCache();
+  // Static sections always take their fresh built-in pool (overriding any
+  // cached copy, so list edits ship immediately).
+  for (const s of SECTIONS) {
+    if (s.staticItems) {
+      data[s.id] = { fetchedAt: Date.now(), items: s.staticItems.map((i) => ({ pubDate: '', ...i })) };
+    }
+  }
+  renderAll();
   if (cachedAt) {
-    renderAll();
     const stale = Date.now() - cachedAt > STALE_AFTER_MS;
     setStatus(stale ? `showing stories from ${relTime(new Date(cachedAt).toISOString())} — refreshing…` : 'refreshing…', stale);
   } else {
     setStatus('acquiring live feeds…');
+  }
+
+  // Refresh-timing selector
+  const cycleSelect = $('cycle-select');
+  if (cycleSelect) {
+    cycleSelect.value = String(cycleMinutes);
+    cycleSelect.addEventListener('change', () => {
+      try { localStorage.setItem(CYCLE_STORE_KEY, cycleSelect.value); } catch { /* ignore */ }
+      location.reload();
+    });
   }
 
   deadline = Date.now() + CYCLE_MS;

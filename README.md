@@ -39,7 +39,11 @@ up-to-the-minute stories and the countdown restarts. Forever.
 ## Sections
 
 Top Stories · World · U.S. · Business · Technology · AI · Hacker News ·
-Science · Health · Sports · Entertainment
+Science · Health · Sports · Entertainment · WilDi Maps (links, careers, and
+Learn articles from [wildimaps.com](https://wildimaps.com))
+
+The countdown defaults to 5 minutes and is selectable in the header
+(2 / 5 / 10 / 15 / 30 min); the choice is remembered per browser.
 
 ## T5 analysis cards
 

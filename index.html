@@ -16,10 +16,21 @@
   <header>
     <h1 class="site-title">TAKE5<span class="accent">-AI</span> NEWS</h1>
     <p class="tagline">when all you have is 5 mins</p>
+    <p class="builtby">Built By: <span>Terror Ross</span></p>
     <div id="timer" class="timer" role="timer" aria-label="Time until next refresh">
       <span class="digit" id="m1">0</span><span class="digit" id="m2">5</span><span class="colon">:</span><span class="digit" id="s1">0</span><span class="digit" id="s2">0</span>
     </div>
     <p id="status" class="status">initializing…</p>
+    <div class="refresh-ctl">
+      <label for="cycle-select">NEWS REFRESH</label>
+      <select id="cycle-select" aria-label="News refresh timing">
+        <option value="2">2 MIN</option>
+        <option value="5" selected>5 MIN</option>
+        <option value="10">10 MIN</option>
+        <option value="15">15 MIN</option>
+        <option value="30">30 MIN</option>
+      </select>
+    </div>
   </header>
 
   <main id="grid" class="grid" aria-live="polite"></main>
