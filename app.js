@@ -121,18 +121,8 @@
   const CARD_CACHE_KEY = 'take5.cards.v1';
   const CARD_CACHE_MAX = 40;
 
-  // User-selectable refresh timing (header dropdown). Default 5 minutes;
-  // the ?debug=N override still wins for testing.
-  const CYCLE_STORE_KEY = 'take5.cycle.v1';
-  const CYCLE_CHOICES = [2, 5, 10, 15, 30];
-  let cycleMinutes = 5;
-  try {
-    const stored = Number(localStorage.getItem(CYCLE_STORE_KEY));
-    if (CYCLE_CHOICES.includes(stored)) cycleMinutes = stored;
-  } catch { /* ignore */ }
-
   const debugSecs = Number(new URLSearchParams(location.search).get('debug'));
-  const CYCLE_MS = debugSecs >= 5 ? debugSecs * 1000 : cycleMinutes * 60 * 1000;
+  const CYCLE_MS = debugSecs >= 5 ? debugSecs * 1000 : 5 * 60 * 1000;
   // The relays rate-limit bursts (~18 rapid requests trips HTTP 429), so the
   // ~35 feed fetches are spread across the cycle instead: the harvest starts
   // right after each swap and must wrap up this long before the next zero.
@@ -660,16 +650,6 @@
     setStatus(stale ? `showing stories from ${relTime(new Date(cachedAt).toISOString())} — refreshing…` : 'refreshing…', stale);
   } else {
     setStatus('acquiring live feeds…');
-  }
-
-  // Refresh-timing selector
-  const cycleSelect = $('cycle-select');
-  if (cycleSelect) {
-    cycleSelect.value = String(cycleMinutes);
-    cycleSelect.addEventListener('change', () => {
-      try { localStorage.setItem(CYCLE_STORE_KEY, cycleSelect.value); } catch { /* ignore */ }
-      location.reload();
-    });
   }
 
   deadline = Date.now() + CYCLE_MS;
