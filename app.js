@@ -660,9 +660,11 @@
   // would spawn a duplicate harvest.
   prefetchPromise = harvestAll(INITIAL_WINDOW_MS, true).catch(() => 0);
   prefetchPromise.then((updated) => {
-    renderAll();
+    // No re-render here: displayed stories only change when the timer hits
+    // zero. The harvest's fresh data waits in memory for the first swap
+    // (empty cards were already filled progressively as feeds arrived).
     setStatus(updated
-      ? `last updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      ? `fresh stories ready — next swap at 00:00`
       : 'live feeds unreachable — showing cached stories', !updated);
   });
 
