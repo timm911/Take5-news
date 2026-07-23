@@ -28,6 +28,11 @@
       src('https://www.theguardian.com/us-news/rss', 'The Guardian'),
       src('https://rss.nytimes.com/services/xml/rss/nyt/US.xml', 'NYT'),
     ] },
+    { id: 'politics', title: 'Politics', feeds: [
+      gn('POLITICS'),
+      src('https://rss.politico.com/politics-news.xml', 'Politico'),
+      src('https://thehill.com/homenews/feed/', 'The Hill'),
+    ] },
     { id: 'business', title: 'Business', feeds: [
       gn('BUSINESS'),
       src('https://www.cnbc.com/id/10001147/device/rss/rss.html', 'CNBC'),
@@ -47,12 +52,26 @@
       src('https://venturebeat.com/category/ai/feed/', 'VentureBeat'),
       src('https://openai.com/blog/rss.xml', 'OpenAI'),
     ] },
+    { id: 'crypto', title: 'Crypto', feeds: [
+      src('https://www.coindesk.com/arc/outboundfeeds/rss/', 'CoinDesk'),
+      src('https://cointelegraph.com/rss', 'Cointelegraph'),
+      src('https://decrypt.co/feed', 'Decrypt'),
+    ] },
     { id: 'hn', title: 'Hacker News', hn: true, feeds: [] },
+    { id: 'gaming', title: 'Gaming', feeds: [
+      src('https://feeds.ign.com/ign/all', 'IGN'),
+      src('https://kotaku.com/rss', 'Kotaku'),
+    ] },
     { id: 'science', title: 'Science', feeds: [
       gn('SCIENCE'),
       src('https://www.sciencedaily.com/rss/all.xml', 'ScienceDaily'),
       src('https://www.nasa.gov/rss/dyn/breaking_news.rss', 'NASA'),
       src('https://www.nature.com/nature.rss', 'Nature'),
+    ] },
+    { id: 'space', title: 'Space', feeds: [
+      src('https://www.space.com/feeds/all', 'Space.com'),
+      src('https://phys.org/rss-feed/space-news/', 'Phys.org'),
+      src('https://www.nasa.gov/rss/dyn/breaking_news.rss', 'NASA'),
     ] },
     { id: 'health', title: 'Health', feeds: [
       gn('HEALTH'),
@@ -63,6 +82,16 @@
       gn('SPORTS'),
       src('https://feeds.bbci.co.uk/sport/rss.xml', 'BBC Sport'),
       src('https://www.skysports.com/rss/12040', 'Sky Sports'),
+    ] },
+    { id: 'cars', title: 'Cars', feeds: [
+      src('https://www.caranddriver.com/rss/all.xml/', 'Car and Driver'),
+      src('https://www.motor1.com/rss/articles/all/', 'Motor1'),
+      src('https://jalopnik.com/rss', 'Jalopnik'),
+    ] },
+    { id: 'music', title: 'Music', feeds: [
+      src('https://www.billboard.com/feed/', 'Billboard'),
+      src('https://www.rollingstone.com/music/feed/', 'Rolling Stone'),
+      src('https://www.stereogum.com/feed/', 'Stereogum'),
     ] },
     { id: 'entertainment', title: 'Entertainment', feeds: [
       gn('ENTERTAINMENT'),
@@ -127,7 +156,7 @@
   // ~35 feed fetches are spread across the cycle instead: the harvest starts
   // right after each swap and must wrap up this long before the next zero.
   const HARVEST_MARGIN_MS = Math.min(30000, Math.floor(CYCLE_MS / 3));
-  const INITIAL_WINDOW_MS = Math.min(90000, Math.floor(CYCLE_MS / 2));
+  const INITIAL_WINDOW_MS = Math.min(120000, Math.floor(CYCLE_MS / 2));
 
   // ---------- State ----------
 
@@ -581,10 +610,14 @@
     lastShownSecond = totalSec;
     const mm = fmt(Math.floor(totalSec / 60));
     const ss = fmt(totalSec % 60);
-    $('m1').textContent = mm[mm.length - 2] || '0';
-    $('m2').textContent = mm[mm.length - 1];
-    $('s1').textContent = ss[0];
-    $('s2').textContent = ss[1];
+    const digits = {
+      m1: mm[mm.length - 2] || '0', m2: mm[mm.length - 1],
+      s1: ss[0], s2: ss[1],
+    };
+    // Updates every timer on the page (top and bottom).
+    for (const [pos, ch] of Object.entries(digits)) {
+      document.querySelectorAll(`[data-d="${pos}"]`).forEach((n) => { n.textContent = ch; });
+    }
   }
 
   function startHarvest(windowMs) {
@@ -596,9 +629,11 @@
   }
 
   async function onZero() {
-    timerEl.classList.remove('flash');
-    void timerEl.offsetWidth; // restart the animation
-    timerEl.classList.add('flash');
+    document.querySelectorAll('.timer').forEach((t) => {
+      t.classList.remove('flash');
+      void t.offsetWidth; // restart the animation
+      t.classList.add('flash');
+    });
     deadline += CYCLE_MS;
     const p = prefetchPromise;
     prefetchPromise = null;

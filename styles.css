@@ -125,6 +125,16 @@ header { text-align: center; margin-bottom: 1.75rem; }
 
 .status.stale { color: #b8a11f; }
 
+.bottom-timer-wrap {
+  text-align: center;
+  margin-top: 2rem;
+}
+
+.timer-bottom {
+  font-size: clamp(1.6rem, 5vw, 2.4rem);
+  padding: 0.35rem 1rem;
+}
+
 /* ---------- Sections grid ---------- */
 
 .grid {

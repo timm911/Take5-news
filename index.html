@@ -18,15 +18,21 @@
     <p class="tagline">when all you have is 5 mins</p>
     <p class="builtby">Built By: <span>Terror Ross</span></p>
     <div id="timer" class="timer" role="timer" aria-label="Time until next refresh">
-      <span class="digit" id="m1">0</span><span class="digit" id="m2">5</span><span class="colon">:</span><span class="digit" id="s1">0</span><span class="digit" id="s2">0</span>
+      <span class="digit" data-d="m1">0</span><span class="digit" data-d="m2">5</span><span class="colon">:</span><span class="digit" data-d="s1">0</span><span class="digit" data-d="s2">0</span>
     </div>
     <p id="status" class="status">initializing…</p>
   </header>
 
   <main id="grid" class="grid" aria-live="polite"></main>
 
+  <div class="bottom-timer-wrap" aria-hidden="true">
+    <div class="timer timer-bottom">
+      <span class="digit" data-d="m1">0</span><span class="digit" data-d="m2">5</span><span class="colon">:</span><span class="digit" data-d="s1">0</span><span class="digit" data-d="s2">0</span>
+    </div>
+  </div>
+
   <footer>
-    <p>Headlines via Google News, BBC, NPR, The Guardian, NYT, CNBC, The Verge, Ars Technica, TechCrunch, MIT Tech Review, Hacker News &amp; more · refreshed every 5 minutes · <a href="https://github.com/timm911/Take5-news" target="_blank" rel="noopener noreferrer">source</a></p>
+    <p>Headlines via Google News, BBC, NPR, The Guardian, NYT, CNBC, Politico, CoinDesk, The Verge, Ars Technica, TechCrunch, MIT Tech Review, Hacker News, IGN, Space.com, Car and Driver, Billboard &amp; more · refreshed every 5 minutes · <a href="https://github.com/timm911/Take5-news" target="_blank" rel="noopener noreferrer">source</a></p>
   </footer>
 
   <script src="app.js"></script>

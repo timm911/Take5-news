@@ -38,9 +38,10 @@ up-to-the-minute stories and the countdown restarts. Forever.
 
 ## Sections
 
-Top Stories · World · U.S. · Business · Technology · AI · Hacker News ·
-Science · Health · Sports · Entertainment · WilDi Maps (links, careers, and
-Learn articles from [wildimaps.com](https://wildimaps.com))
+Top Stories · World · U.S. · Politics · Business · Crypto · Technology · AI ·
+Hacker News · Gaming · Science · Space · Health · Sports · Cars · Music ·
+Entertainment · WilDi Maps (links, careers, and Learn articles from
+[wildimaps.com](https://wildimaps.com))
 
 ## T5 analysis cards
 
