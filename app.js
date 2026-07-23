@@ -495,10 +495,10 @@
       panel.appendChild(el('p', 't5-error', `Analysis unavailable: ${card.error}`));
     } else {
       if (card.headline_only) panel.appendChild(el('p', 't5-note', 'Article body unreachable — analysis based on the headline.'));
+      cardBlock(panel, 'Summary', card.summary);
       renderLeanMeter(panel, card.lean);
       cardBlock(panel, 'Bias flags', card.bias_flags);
       cardBlock(panel, 'Missing', card.missing_facts);
-      cardBlock(panel, 'Summary', card.summary);
       cardBlock(panel, 'So what?', card.so_what);
       cardBlock(panel, 'Their side', card.their_side);
       cardBlock(panel, 'Other side', card.other_side);
