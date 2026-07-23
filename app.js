@@ -116,7 +116,7 @@
   // opens the T5 card; the source name under each headline links straight to
   // the article. When empty, headlines link directly as before.
   // Overridable for testing via ?t5api=<url>.
-  const T5_API_DEFAULT = '';
+  const T5_API_DEFAULT = 'https://take5-t5.timm-3cc.workers.dev';
   const T5_API = new URLSearchParams(location.search).get('t5api') || T5_API_DEFAULT;
   const CARD_CACHE_KEY = 'take5.cards.v1';
   const CARD_CACHE_MAX = 40;
