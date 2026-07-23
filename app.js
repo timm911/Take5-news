@@ -392,32 +392,65 @@
   async function harvestAll(windowMs, progressive) {
     const cycleToken = Date.now();
     // One task per feed (not per section) so a slow feed can't hold a whole
-    // section hostage.
-    const tasks = [];
+    // section hostage. Grouped per section first, then interleaved
+    // round-robin: the FIRST feed of every section launches before any
+    // section's second feed, so on a fresh load every card fills early
+    // instead of tail sections starving if rate limits bite late in the run.
+    const bySection = [];
     for (const s of SECTIONS) {
-      if (s.hn) { tasks.push({ id: s.id, run: () => fetchHackerNews() }); continue; }
-      for (const f of s.feeds) tasks.push({ id: s.id, run: (i) => fetchFeed(f, cycleToken, i) });
+      if (s.hn) { bySection.push([{ id: s.id, run: () => fetchHackerNews() }]); continue; }
+      if (!s.feeds.length) continue;
+      bySection.push(s.feeds.map((f) => ({ id: s.id, run: (i) => fetchFeed(f, cycleToken, i) })));
     }
-    // Rotate launch order each harvest so no section is systematically last
-    // (last in a tight window is first to hit any rate limit).
-    const rot = (harvestCount++ * 7) % tasks.length;
+    const tasks = [];
+    for (let round = 0; ; round++) {
+      let added = false;
+      for (const group of bySection) {
+        if (group[round]) { tasks.push(group[round]); added = true; }
+      }
+      if (!added) break;
+    }
+    // Background harvests additionally rotate the launch order each cycle so
+    // no section is systematically last; the visible progressive load keeps
+    // strict round-robin order (top sections first).
+    const rot = progressive ? 0 : (harvestCount * 7) % tasks.length;
+    harvestCount++;
     const ordered = tasks.slice(rot).concat(tasks.slice(0, rot));
-    const spacing = Math.max(0, windowMs - FETCH_TIMEOUT_MS) / Math.max(1, ordered.length - 1);
 
     const rawBySection = {};
-    await Promise.all(ordered.map((t, i) => (async () => {
-      await sleep(i * spacing);
-      try {
-        const items = await t.run(i);
-        if (items.length) (rawBySection[t.id] ||= []).push(...items);
-        // On first load, fill each empty card as soon as any of its feeds
-        // lands instead of waiting for the whole harvest.
-        if (progressive && items.length && !data[t.id]?.items?.length) {
-          data[t.id] = { fetchedAt: Date.now(), items: normalizeItems(rawBySection[t.id], t.id !== 'hn') };
-          renderSection(t.id, false);
+    const runTasks = async (list, ms) => {
+      const spacing = Math.max(0, ms - FETCH_TIMEOUT_MS) / Math.max(1, list.length - 1);
+      await Promise.all(list.map((t, i) => (async () => {
+        await sleep(i * spacing);
+        try {
+          const items = await t.run(i);
+          if (items.length) (rawBySection[t.id] ||= []).push(...items);
+          // On first load, fill each empty card as soon as any of its feeds
+          // lands instead of waiting for the whole harvest.
+          if (progressive && items.length && !data[t.id]?.items?.length) {
+            data[t.id] = { fetchedAt: Date.now(), items: normalizeItems(rawBySection[t.id], t.id !== 'hn') };
+            renderSection(t.id, false);
+          }
+        } catch { /* this feed failed — the section's other feeds still count */ }
+      })()));
+    };
+
+    await runTasks(ordered, windowMs);
+
+    // On the visible first load, circle back for any section that got
+    // nothing (e.g. its slot hit a relay rate limit): wait for the limiter
+    // to cool, then retry just those sections' feeds. Up to two rounds.
+    if (progressive) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const missing = [];
+        for (const group of bySection) {
+          if (!data[group[0].id]?.items?.length) missing.push(...group);
         }
-      } catch { /* this feed failed — the section's other feeds still count */ }
-    })()));
+        if (!missing.length) break;
+        await sleep(12000);
+        await runTasks(missing, missing.length * 3000);
+      }
+    }
 
     let updated = 0;
     for (const s of SECTIONS) {
