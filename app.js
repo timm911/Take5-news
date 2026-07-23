@@ -233,18 +233,19 @@
       const a = document.createElement('a');
       a.textContent = item.title;
       a.href = item.link;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
       if (useCard) {
         // Headline opens the T5 analysis card; plain modified-clicks (new tab)
-        // still follow the href to the article.
+        // still follow the href to the article. If the analysis backend has
+        // recently failed (e.g. out of API credit), behave as a normal link.
         a.className = 't5-link';
         a.addEventListener('click', (e) => {
           if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+          if (t5Down()) return;
           e.preventDefault();
           openCard(item, sectionTitle);
         });
-      } else {
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
       }
       wrap.appendChild(a);
       const meta = document.createElement('span');
@@ -499,6 +500,22 @@
     } catch { /* ignore */ }
   }
 
+  // When a card request fails (out of Anthropic credit, worker down, network),
+  // clicks fall back to the plain article link for a few minutes instead of
+  // showing readers a broken analysis card.
+  const T5_DOWN_KEY = 'take5.t5down.v1';
+  const T5_DOWN_MS = 10 * 60 * 1000;
+
+  function t5Down() {
+    try { return Date.now() < Number(localStorage.getItem(T5_DOWN_KEY) || 0); }
+    catch { return false; }
+  }
+
+  function markT5Down() {
+    try { localStorage.setItem(T5_DOWN_KEY, String(Date.now() + T5_DOWN_MS)); }
+    catch { /* ignore */ }
+  }
+
   let overlayEl = null;
 
   function closeCard() {
@@ -625,7 +642,11 @@
         saveCardCache(cache);
       }
     } catch (e) {
-      if (overlayEl) renderCardContent(panel, item, { error: String(e.message || e) });
+      // Analysis unavailable (API credit exhausted, worker down, timeout):
+      // send the reader to the article itself and skip the card for a while.
+      markT5Down();
+      closeCard();
+      location.href = item.link;
     }
   }
 
@@ -742,4 +763,26 @@
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) tick();
   });
+
+  // Visitor counter (Abacus — free hosted counter). Each browser session
+  // counts once; later loads in the same session just read the total.
+  // Stays hidden if the counter service is unreachable.
+  (async () => {
+    const visEl = $('visitors');
+    if (!visEl) return;
+    let counted = false;
+    try { counted = sessionStorage.getItem('take5.counted') === '1'; } catch { /* ignore */ }
+    try {
+      const res = await fetch(
+        `https://abacus.jasoncameron.dev/${counted ? 'get' : 'hit'}/take5-news-timm911/visits`,
+        { signal: AbortSignal.timeout(8000) },
+      );
+      const { value } = await res.json();
+      if (typeof value === 'number') {
+        visEl.textContent = `VISITORS ${value.toLocaleString()}`;
+        visEl.classList.add('show');
+        try { sessionStorage.setItem('take5.counted', '1'); } catch { /* ignore */ }
+      }
+    } catch { /* leave hidden */ }
+  })();
 })();

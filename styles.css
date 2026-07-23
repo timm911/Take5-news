@@ -397,6 +397,18 @@ footer {
 
 footer a { color: var(--green-dim); }
 
+.visitors {
+  display: none;
+  font-family: 'Orbitron', 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.3em;
+  color: var(--green);
+  text-shadow: 0 0 8px rgba(57, 255, 20, 0.4);
+  margin-bottom: 0.6rem;
+}
+
+.visitors.show { display: block; }
+
 @media (max-width: 480px) {
   body { padding: 1rem 0.6rem 1.5rem; }
   .timer { font-size: 2.4rem; padding: 0.4rem 1rem; }
